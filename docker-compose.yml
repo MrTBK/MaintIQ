@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: maintiQ
+      POSTGRES_PASSWORD: maintiQ
+      POSTGRES_DB: maintiQ
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  api:
+    build: ./backend
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      MAINTIQ_DATABASE_URL: postgresql+psycopg://maintiQ:maintiQ@db:5432/maintiQ
+    depends_on:
+      - db
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

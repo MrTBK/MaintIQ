@@ -1,0 +1,12 @@
+# Decisions
+- D1 Keep React frontend (matches target stack).
+- D2 Dataset AI4I 2020 (labels, license, no RUL).
+- D3 Sessions over JWT (spec 22, revocation + HttpOnly).
+- D4 Postgres + SQLAlchemy modular monolith (no K8s/Kafka/Redis).
+- D5 Quieter industrial UI: grouped nav, 4-KPI Overview, plain language, no AI theater.
+- D6 Single metadata-driven Alembic init (autogenerate produced an empty init against a pre-created dev DB; squashed honestly, clean-DB verified).
+- D7 Detection reruns fully refresh anomalies (idempotent) and bump risk + create recs so lineage stays consistent.
+- D8 Warehouse-trained LogReg baseline with leakage note; no accuracy theater on imbalanced labels.
+- D9 Staging caught a real bug: this SQLAlchemy version does not reorder FK-only (relationship-less) child inserts behind parents in one flush; SQLite hid it (FKs off by default). Fixed with ordered seed flushes + PRAGMA foreign_keys=ON in dev + FK regression test.
+- D10 Postgres-default declined: SQLite stays the zero-setup default so `bash run.sh` works with no Docker; Postgres is the staged path (`docker compose`), where FKs are enforced.
+- D11 Clean Product UI: quiet enterprise analytics style; frontend reflects backend capabilities only; offline snapshot explicitly labeled, never mixed into API numbers.

@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+backend/.venv/
+__pycache__/
+*.py[cod]
+
+# Builds & output
+dist/
+test-results/
+playwright-report/
+
+# Databases (dev-local; recreate via seed/migrations)
+*.db
+*.sqlite3
+
+# Env & secrets
+.env
+.env.local
+.env.*.local
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs & temp
+*.log
+/tmp/maintiQ-*.pid

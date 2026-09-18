@@ -1,0 +1,12 @@
+fastapi==0.141.1
+uvicorn
+sqlalchemy
+alembic
+pydantic
+pydantic-settings
+pytest
+httpx
+bcrypt
+python-multipart
+psycopg[binary]
+scikit-learn

@@ -1,0 +1,168 @@
+MaintIQ — Industrial Predictive Maintenance & Decision Intelligence Platform
+============================================================================
+Complete reference: what was built, how the website works, what it uses.
+
+1. STARTING POINT
+-----------------
+The repository contained only a frontend: React 19 + TypeScript + Vite 8 +
+Tailwind CSS 4 + React Router 7 + Recharts + Lucide, ~15 pages
+(src/pages/*.tsx), an app shell (src/components/layout/Shell.tsx), small UI
+atoms (KpiCard, StatusBadge, StateModals), a typed domain model
+(src/types/index.ts), and all state served from a 996-line mock file
+(src/data/mockData.ts) through React context (src/context/AppContext.tsx).
+There was no backend, database, authentication, tests, Docker/CI, or docs.
+package.json was still named "react-example" and carried unused deps
+(express, @google/genai, motion, dotenv, tsx). Audit decision (PROJECT_PLAN.md,
+the execution source of truth, 23 phases): KEEP the frontend, REPLACE the
+mock-only data flow with a real API, ADD everything server-side.
+
+2. WHAT WAS BUILT — BACKEND (backend/app/, FastAPI + SQLAlchemy + Pydantic)
+----------------------------------------------------------------------------
+- main.py: app factory, CORS allowlist via MAINTIQ_CORS_ORIGINS, /health,
+  GET /api/auth/me, router wiring, generic 500 handler ("Unable to load
+  data."), lifespan startup creating tables + warning when the session secret
+  is left on the dev default.
+- config.py: pydantic-settings (MAINTIQ_ prefix): version, database_url
+  (SQLite dev fallback, PostgreSQL in production), session_secret,
+  cookie_secure, cors_origins.
+- db.py: engine + SessionLocal + DeclarativeBase + get_db + init_db (dev/test
+  convenience only; production path is Alembic).
+- models.py: users (+display_name/email), sessions, machines, sensor_readings,
+  failures, maintenance_tasks, risks, recommendations, alerts, anomalies,
+  data_sources, dq_reports, runs, audit_events. Indexes on risk_score,
+  (machine_id, ts), failures.machine_id.
+- auth.py + deps.py: server-side sessions, 12h expiry, HttpOnly SameSite=Lax
+  cookie (Secure flag in production), bcrypt hashes, five roles
+  (ADMIN/MAINTENANCE_MANAGER/RELIABILITY_ENGINEER/ANALYST/VIEWER) enforced
+  server-side with ADMIN bypass. No JWT, nothing in localStorage.
+- routers.py: paginated GET /api/machines (q/status filters, risk_score desc,
+  page_size max 100); GET /api/machines/{id} (machine + readings + failures +
+  maintenance + risk + recommendations in one payload); GET
+  /api/machines/{id}/trend (raw/hour/day buckets + min/max/avg/current/
+  baseline); GET /api/machines/{id}/anomalies; /api/failures;
+  /api/maintenance?status=; /api/risks; /api/recommendations; /api/alerts;
+  POST /api/alerts/{id}/review|/resolve (MANAGER+); PATCH
+  /api/recommendations/{id} and /api/maintenance/{id} (MANAGER+); POST+PATCH
+  /api/users (ADMIN, no self-deactivate); /api/data-sources, /api/data-quality,
+  /api/runs, /api/auth/me, /api/audit (ADMIN/MANAGER); POST /api/runs/ingest
+  (validated CSV); POST /api/runs/detect (rolling-z + risk refresh + auto
+  recommendations); POST /api/runs/train-failure-model (LogReg + honest
+  metrics). Every mutation writes an audit event. No passwords/tokens logged.
+- ingest.py: UTF-8 + exact-schema check → per-row type/business validation
+  (ISO timestamps, known machine, physical ranges) → DQ report → bulk load →
+  run + audit rows. Bad rows returned with line numbers, never silently
+  dropped. Run IDs carry a uuid suffix (fixed a same-second PK collision found
+  by the test suite).
+- services_analytics.py: bucketed trends + stats; baseline = mean of earliest
+  third of points (documented normal-operation reference).
+- services_anomaly.py: stage-1 rolling-z (prior-20 mean/std, bands Medium>=3,
+  High>=4, Critical>=5). Detect runs fully refresh the anomalies table
+  (idempotent reruns), bump machine risk from the worst new anomaly
+  (Critical floor 80, High 65), and create pending recommendations for
+  Critical/High vibration findings.
+- services_risk.py: transparent score (capped vibration 35 + temperature 25 +
+  failure probability + overdue + history), bands Critical>=80/High>=60/
+  Medium>=35/Low, primary driver + per-factor evidence. No black-box scores.
+- services_reco.py: rule-based recommendations with reason, impact, window,
+  downtime. No "AI generated" claims.
+- services_predict.py: LogReg on warehouse features (risk, hours, past
+  failures, anomaly count, overdue) with stratified split, precision/recall/
+  F1/ROC-AUC (accuracy deliberately not reported), leakage note, fixed seed
+  for determinism, run record persisted.
+- seed.py (isolated demo data): 3 logins (admin/admin123 ADMIN,
+  manager/manager123 MAINTENANCE_MANAGER, viewer/viewer123 VIEWER),
+  20 machines with computed risk, alerts, recommendations, failures, work
+  orders, one AI4I-2020 source row, one DQ report, one run.
+- Migrations: single metadata-driven Alembic init (an early empty autogenerate
+  artefact was found and honestly squashed); clean-DB upgrade→seed verified.
+- Tests: 24/24 green (health, risk, DQ, auth/RBAC, ingest incl. bad-row
+  accounting, trend buckets, anomaly persist + idempotent rerun + risk/reco
+  update, prediction metrics + determinism, ops transitions + RBAC denials,
+  FK-enforced seed regression).
+
+3. WHAT WAS BUILT — FRONTEND (src/, React + TS + Vite + Tailwind)
+------------------------------------------------------------------
+- services/api.ts: fetch wrapper (credentials:include, 401 mapping) + typed
+  helpers for every endpoint incl. trend, anomalies, detect, train, review/
+  resolve, reco/maintenance PATCH, user create/deactivate.
+- context/AppContext.tsx: loads machines, work orders, recommendations,
+  alerts, failures, risks, sources, runs, users, audit from the API on mount
+  (with bundled snapshot fallback, UI-labeled); actions call the API with
+  local fallback so the UI never dead-ends offline.
+- Shell: grouped nav (Overview / Assets: Machines, Sensor Analytics /
+  Maintenance: Work Orders, Failures, Alerts / Analytics: Risk,
+  Recommendations / Data: Sources, Quality, Runs / Administration: Users,
+  Audit, Settings), plain breadcrumbs, live critical badge, API/offline
+  indicator. No AI-theater wording anywhere.
+- Overview ("Maintenance Overview"): 4 live KPI cards (Machines, At Risk,
+  Open Failures, Upcoming Maintenance), health donut from live statuses, risk
+  distribution bar, risk table (Machine/Type/Risk/Main Issue/Action), live
+  work orders and alerts.
+- Machines + Detail: fleet search/filter/sort; detail fetches live readings,
+  failures, maintenance, risk evidence, anomalies; chart overlays baseline/
+  warning/critical lines from settings; evidence panel shows engine factors;
+  mock M-042 numbers and the fake "94.2% BPFO" panel were removed.
+- Sensor Trends: machine selector, range→bucket mapping (24h raw, 7d hour,
+  30d day), per-sensor stats (current/baseline/min/avg/max) from the trend
+  endpoint, merged multi-sensor chart, live anomaly table, honest empty state
+  ("upload a CSV") instead of fake telemetry.
+- Failures/Risk/Sources/Quality/Runs/Users/Audit: all computed from live
+  collections; hardcoded KPIs ("42 failures", "99.94%", "2,400 msg/s", fake
+  TCP-handshake modal, fake run generator with invented scan counts) were
+  deleted. Sources table shows real rows or nothing; Quality shows real
+  DQ reports with fallback label; Runs triggers real detection runs.
+- Users: create form (username + temporary password + role) wired to the API,
+  deactivate button wired to PATCH, with local fallback.
+- Tests: Vitest + RTL + jsdom, 9/9 green (badge colors, KPI render, api 401 +
+  URL/cookies, routing renders grouped nav + overview, machine search filter).
+  tsc clean, vite build clean, `npm test` wired into CI.
+
+4. HOW TO RUN
+-------------
+Prereqs: Python 3.10+, Node 20+. `bash run.sh` does everything (venv, deps,
+seed, API :8000 + web :3000, health wait, URLs, stop command; ports via
+API_PORT/WEB_PORT; DB via MAINTIQ_DATABASE_URL). Manual: backend venv +
+requirements + `app.seed` + uvicorn; frontend `npm install
+--legacy-peer-deps` + `VITE_API_URL=http://localhost:8000 npm run dev`.
+Production env: MAINTIQ_DATABASE_URL (postgres+psycopg), MAINTIQ_SESSION_SECRET
+(required — startup warns on dev default), MAINTIQ_CORS_ORIGINS,
+MAINTIQ_COOKIE_SECURE=true. Docker: `docker compose up --build` (postgres +
+API running migrations+seed + web) — verified 2026-09-18: seed 20 machines,
+login/machines/detect/web all 200 on Postgres.
+Verify: /health → {"status":"ok"}; sign in at /login (seed: admin/admin123);
+sign out via top-right user menu → Operator → Sign out (signed-out users only
+see /login). `cd backend && PYTHONPATH=. .venv/bin/python -m pytest -q`
+(24 passed); `npm test` (9 passed).
+
+5. DATA LINEAGE (E2E-VERIFIED ON M-002)
+---------------------------------------
+CSV → validation → DQ report → sensor_readings → trend stats → rolling-z
+anomalies → risk bump (Critical floor 80) → auto-recommendation → API →
+React. Trace showed a stale-risk gap (seed risk Low beside a Critical live
+anomaly) and duplicate rows on reruns; both fixed (full-refresh detect, risk
+bump, deduped recs) and covered by tests. GET /api/machines/{id} returns the
+whole story in one payload so Overview, detail, risk, and recommendation
+pages cannot disagree.
+
+6. TECHNOLOGY (AND WHY)
+-----------------------
+React 19 + TS + Vite + Tailwind + Router + Recharts + Lucide (kept: already
+correct). FastAPI + Pydantic + SQLAlchemy + Alembic (typed REST, validation,
+parameterized queries, versioned schema). bcrypt, SQLite dev / PostgreSQL
+prod (modular monolith; no K8s/Kafka/Redis/GraphQL per YAGNI). scikit-learn
+for the LogReg baseline only. Pytest + Vitest + tsc + vite build + CI gates.
+Deliberately NOT used: JWT (revocable sessions instead), RUL (AI4I has no
+degradation trajectories), live IoT, IsolationForest/XGBoost (only if they
+beat the shipped baselines on labeled data).
+
+7. SECURITY, QUALITY, LIMITATIONS
+----------------------------------
+HttpOnly SameSite=Lax cookies (+Secure in prod), bcrypt, server RBAC on every
+sensitive route, login rate limit (10/min/IP) + security headers, CORS
+allowlist, generic 500s, audit without secrets; grep audit clean (no
+storage/JWT/debug/eval/secrets/raw SQL; single "synthetic" hit is synthetic
+motor oil). Honest gaps, documented in docs/security.md and
+docs/limitations.md: rate limiting is login-scoped, no CSRF tokens, no
+CSP/HSTS headers (add before internet exposure); failure model is a
+small-sample baseline; full AI4I column mapping beyond the shipped subset is
+future work.
