@@ -33,6 +33,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install -r backend/requirements.txt
       - run: npm install --legacy-peer-deps
       - run: npx playwright install chromium --only-shell
       - run: npx playwright test

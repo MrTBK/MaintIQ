@@ -11,10 +11,11 @@ export default defineConfig({
   webServer: [
     {
       command:
-        `sh -c 'rm -f /tmp/mq-e2e.db && cd backend && PYTHONPATH=. MAINTIQ_DATABASE_URL=sqlite:////tmp/mq-e2e.db ` +
-        `MAINTIQ_CORS_ORIGINS=http://localhost:5123 .venv/bin/python -m app.seed >/dev/null && PYTHONPATH=. ` +
-        `MAINTIQ_DATABASE_URL=sqlite:////tmp/mq-e2e.db MAINTIQ_CORS_ORIGINS=http://localhost:5123 ` +
-        `.venv/bin/uvicorn app.main:app --port 8123'`,
+        `sh -c 'rm -f /tmp/mq-e2e.db && cd backend && ` +
+        `PY="\$(test -f .venv/bin/python && echo .venv/bin/python || echo python3)" && ` +
+        `PYTHONPATH=. MAINTIQ_DATABASE_URL=sqlite:////tmp/mq-e2e.db MAINTIQ_CORS_ORIGINS=http://localhost:5123 ` +
+        `$PY -m app.seed >/dev/null && PYTHONPATH=. MAINTIQ_DATABASE_URL=sqlite:////tmp/mq-e2e.db ` +
+        `MAINTIQ_CORS_ORIGINS=http://localhost:5123 $PY -m uvicorn app.main:app --port 8123'`,
       url: `${API}/health`,
       timeout: 120000,
       reuseExistingServer: true,
